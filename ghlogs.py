@@ -48,7 +48,7 @@ def lines_between(lines, start, stop):
 
 
 def get_execute(lines):
-    index = next(i for i in range(index, len(lines)) if EXECUTE in lines[i])
+    index = next(i for i, li in enumerate(lines) if EXECUTE in li)
     return lines[index + 1]
 
 
@@ -87,12 +87,15 @@ def write_logs(run_id, log_dir='log'):
 
             log = get_job_log(job_id)
             write('full', log)
-            lines = log.splitlines(keepends=True)
-            execute = get_execute(lines)
-            result = filter_job_log(lines)
 
+            lines = log.splitlines(keepends=True)
+
+            execute = get_execute(lines)
+            command_fp.write(f'{execute}  # {job_id}\n')
+
+            result = filter_job_log(lines)
             write('summary', result)
-            cmd = f'{execute}  # {job_id}\n'
+
 
 
 if __name__ == '__main__':
