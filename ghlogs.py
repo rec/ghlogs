@@ -3,13 +3,22 @@ import pathlib
 import requests
 
 API_ROOT ='https://api.github.com/repos/pytorch/pytorch'
-FAILURE = 'failure'
-
 HEADERS = {
     'Accept': 'application/vnd.github+json',
     'Authorization': 'Bearer ' + os.getenv('GIT_TOKEN', ''),
     'X-GitHub-Api-Version': '2022-11-28',
 }
+
+FAILURE = 'failure'
+CONCLUSION = 'conclusion'
+
+START = 20 * '!'
+STOP = 'The above exception was the direct cause of the following exception'
+COMMAND = 'To execute this test, run the following from the base repo dir'
+
+PATTERNS = [
+    ['basic', START, STOP],
+]
 
 
 def api_get(path, **ka):
@@ -19,20 +28,13 @@ def api_get(path, **ka):
     return requests.get(url, headers=HEADERS)
 
 
-def get_jobs(run_id):
-    return api_get(f'actions/runs/{run_id}/jobs', per_page=100).json()['jobs']
-
-
-def get_job_log(job_id):
-    return api_get(f'actions/jobs/{job_id}/logs').text
-
-
-def failed(it):
-    return [i for i in it if i['conclusion'] == FAILURE]
-
-
 def get_failures(run_id):
-    jobs = get_jobs(run_id)
+    def failed(it):
+        return [i for i in it if i[CONCLUSION] == FAILURE]
+
+    print('Loading jobs...', end='', flush=True)
+    jobs = api_get(f'actions/runs/{run_id}/jobs', per_page=100).json()['jobs']
+    print(f'done, fai;ure count = {len(jobs)}')
     return [[j, failed(j['steps'])] for j in failed(jobs)]
 
 
@@ -47,11 +49,6 @@ def lines_between(lines, start, stop):
                     yield line
 
 
-def get_execute(lines):
-    index = next(i for i, li in enumerate(lines) if EXECUTE in li)
-    return lines[index + 1]
-
-
 def filter_job_log(lines):
     result = []
     for name, start, stop in PATTERNS:
@@ -63,39 +60,31 @@ def filter_job_log(lines):
     return ''.join(result)
 
 
-START = 20 * '!'
-STOP = 'The above exception was the direct cause of the following exception'
-EXECUTE = 'To execute this test, run the following from the base repo dir'
-
-PATTERNS = [
-    ['basic', START, STOP],
-]
-
-
 def write_logs(run_id, log_dir='log'):
     log_dir = pathlib.Path(log_dir) / run_id
     log_dir.mkdir(parents=True, exist_ok=True)
-    with (log_dir / 'commands.sh').open('w') as command_fp:
-        for job, steps in get_failures(run_id):
-            job_id = job['id']
+    commands = []
 
-            def write(name, s):
-                fname = log_dir / name / f'{job_id}.txt'
-                fname.parent.mkdir(parents=True, exist_ok=True)
-                fname.write_text(s)
-                print('written', fname)
+    for job, steps in get_failures(run_id):
+        job_id = job['id']
+        print(job_id)
 
-            log = get_job_log(job_id)
-            write('full', log)
+        def write(name, s):
+            fname = log_dir / name / f'{job_id}.txt'
+            fname.parent.mkdir(parents=True, exist_ok=True)
+            fname.write_text(s)
 
-            lines = log.splitlines(keepends=True)
+        log = api_get(f'actions/jobs/{job_id}/logs').text
+        lines = log.splitlines(keepends=True)
 
-            execute = get_execute(lines)
-            command_fp.write(f'{execute}  # {job_id}\n')
+        write('full', log)
+        write('summary', filter_job_log(lines))
 
-            result = filter_job_log(lines)
-            write('summary', result)
+        cmd_index = next(i for i, li in enumerate(lines) if COMMAND in li)
+        cmd = lines[cmd_index + 1]
+        commands.append('{cmd}  # {job_id}\n')
 
+    (log_dir / 'commands.sh').write_text(''.join(commands))
 
 
 if __name__ == '__main__':
