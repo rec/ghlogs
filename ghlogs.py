@@ -16,17 +16,14 @@ def api_get(path, **ka):
     query = '&'.join(f'{k}={v}' for k, v in ka.items())
     query = bool(query) * '?' + query
     url = f'{API_ROOT}/{path}{query}'
-    # print('api_get', url)
     return requests.get(url, headers=HEADERS)
 
 
 def get_jobs(run_id):
-    # print('get_jobs', run_id)
     return api_get(f'actions/runs/{run_id}/jobs', per_page=100).json()['jobs']
 
 
 def get_job_log(job_id):
-    # print('get_job_log', job_id)
     return api_get(f'actions/jobs/{job_id}/logs').text
 
 
@@ -50,20 +47,20 @@ def lines_between(lines, start, stop):
                     yield line
 
 
-def filter_job_log(log):
-    lines = log.splitlines(keepends=True)
+def get_execute(lines):
+    index = next(i for i in range(index, len(lines)) if EXECUTE in lines[i])
+    return lines[index + 1]
 
-    def find(match, index=0):
-        return next(i for i in range(index, len(lines)) if match in lines[i])
 
-    _, execute = lines[find(EXECUTE) + 1].split(maxsplit=1)
+def filter_job_log(lines):
     result = []
     for name, start, stop in PATTERNS:
         between = list(lines_between(lines, start, stop))
         if between:
             result = (f'Pattern: {name}\n\n', *between)
             break
-    return execute.strip(), ''.join(result)
+
+    return ''.join(result)
 
 
 START = 20 * '!'
@@ -90,7 +87,10 @@ def write_logs(run_id, log_dir='log'):
 
             log = get_job_log(job_id)
             write('full', log)
-            execute, result = filter_job_log(log)
+            lines = log.splitlines(keepends=True)
+            execute = get_execute(lines)
+            result = filter_job_log(lines)
+
             write('summary', result)
             cmd = f'{execute}  # {job_id}\n'
 
