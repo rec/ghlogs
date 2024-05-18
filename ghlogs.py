@@ -34,7 +34,7 @@ def api_get(path, **ka):
 def get_failures(run_id):
     print('Loading jobs...', end='', flush=True)
     jobs = api_get(f'actions/runs/{run_id}/jobs', per_page=100).json()['jobs']
-    print(f'done, fai;ures = {len(jobs)}')
+    print(f'done, failures = {len(jobs)}')
 
     def failures(it):
         return [i for i in it if i[CONCLUSION] == FAILURE]
@@ -85,8 +85,8 @@ def write_log(job, log_dir):
     write('summary', filter_job_log(lines))
 
     cmd_index = next(i for i, li in enumerate(lines) if COMMAND in li)
-    cmd = lines[cmd_index + 1]
-    return f'{cmd}  # {job_id}\n'
+    _, cmd = lines[cmd_index + 1].split(maxsplit=1)
+    return f'{cmd.strip()}  # {job_id}\n'
 
 
 def write_logs(run_id, log_dir='log'):
@@ -94,7 +94,14 @@ def write_logs(run_id, log_dir='log'):
     log_dir.mkdir(parents=True, exist_ok=True)
     failures = get_failures(run_id)
     commands = ''.join(write_log(job, log_dir) for job in failures)
-    (log_dir / 'commands.sh').write_text(''.join(commands))
+
+    cmd_file = log_dir / 'commands.sh'
+    with cmd_file.open('w') as fp:
+        fp.write('#!/bin/bash\n\nset -e\n\n')
+        for c in commands:
+            fp.write(c)
+
+    cmd_file.chmod(cmd_file.stat().st_mode | 0o111)
 
 
 if __name__ == '__main__':
