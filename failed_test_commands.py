@@ -4,9 +4,13 @@ import re
 import requests
 
 API_ROOT ='https://api.github.com/repos/pytorch/pytorch'
+
+GIT_TOKEN = os.getenv('GIT_TOKEN', '')
+assert GIT_TOKEN, 'Please set env GIT_TOKEN to be a read-only access token'
+
 HEADERS = {
     'Accept': 'application/vnd.github+json',
-    'Authorization': 'Bearer ' + os.getenv('GIT_TOKEN', ''),
+    'Authorization': f'Bearer {GIT_TOKEN}',
     'X-GitHub-Api-Version': '2022-11-28',
 }
 
@@ -17,25 +21,20 @@ CONCLUSION = 'conclusion'
 COMMAND = 'To execute this test, run the following from the base repo dir'
 
 
-def api_get(path, **ka):
-    query = '&'.join(f'{k}={v}' for k, v in ka.items())
-    if query:
-    query = bool(query) * '?' + query
-    url = f'{API_ROOT}/{path}{query}'
-    return requests.get(url, headers=HEADERS)
+def api_get(path):
+    return requests.get(f'{API_ROOT}/{path}', headers=HEADERS)
 
 
 def get_failures(run_id):
     print('Loading jobs...', end='', flush=True, file=sys.stderr)
-    jobs = api_get(f'actions/runs/{run_id}/jobs', per_page=100).json()['jobs']
+    json = api_get(f'actions/runs/{run_id}/jobs?per_page=100').json()
+    try:
+        jobs = json['jobs']
+    except KeyError:
+        print(json, file=sys.stderr)
+        sys.exit(1)
 
-    def failures(it):
-        return [i for i in it if i[CONCLUSION] == FAILURE]
-
-    failed = failures(jobs)
-    for job in failed:
-        job['failed_steps'] = failures(job['steps'])
-
+    failed = [i for i in jobs if i[CONCLUSION] == FAILURE]
     print(f'done, jobs = {len(jobs)}, failed = {len(failed)}', file=sys.stderr)
     return failed
 
