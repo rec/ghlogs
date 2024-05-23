@@ -2,6 +2,7 @@ import os
 import pathlib
 import re
 import requests
+import time
 
 API_ROOT ='https://api.github.com/repos/pytorch/pytorch'
 
@@ -19,22 +20,36 @@ COMMAND_RE = re.compile(r'([A-Z_]+=.*)|python')
 FAILURE = 'failure'
 CONCLUSION = 'conclusion'
 COMMAND = 'To execute this test, run the following from the base repo dir'
+WAIT_FOR_CONCLUSION = 0
 
 
 def failed_test_commands(run_id):
+    print('#/bin/bash\n\nset -x\n')
+
     for job in get_failures(run_id):
         command = get_command(job['id'])
-        print(f'{command}  # {job["id"]}')
+        if command:
+            print(f'{command}  # {job["id"]}')
 
 
 def get_failures(run_id):
-    print('Loading jobs...', file=sys.stderr)
-    json = api_get(f'actions/runs/{run_id}/jobs?per_page=100').json()
-    try:
-        jobs = json['jobs']
-    except KeyError:
-        print(json, file=sys.stderr)
-        sys.exit(1)
+    while True:
+        print('Loading jobs...', file=sys.stderr)
+        json = api_get(f'actions/runs/{run_id}/jobs?per_page=100').json()
+        try:
+            jobs = json['jobs']
+        except KeyError:
+            print(json, file=sys.stderr)
+            sys.exit(1)
+
+        not_finished = sum(not j['conclusion'] for j in jobs)
+        if not_finished:
+            print(f'{not_finished} job{"s" * (not_finished != 1)} not finished', file=sys.stderr)
+
+        if not (WAIT_FOR_CONCLUSION and not_finished):
+            break
+        print('Waiting for', WAIT_FOR_CONCLUSION, 'seconds', file=sys.stderr)
+        time.sleep(WAIT_FOR_CONCLUSION)
 
     failed = [i for i in jobs if i[CONCLUSION] == FAILURE]
     print(f'run_id={run_id}, jobs={len(jobs)}, failed={len(failed)}', file=sys.stderr)
@@ -43,7 +58,10 @@ def get_failures(run_id):
 
 def get_command(job_id):
     lines = api_get(f'actions/jobs/{job_id}/logs').text.splitlines()
-    cmd_index = next(i for i, li in enumerate(lines) if COMMAND in li)
+    command_lines = (i for i, li in enumerate(lines) if COMMAND in li)
+    cmd_index = next(command_lines, -1)
+    if cmd_index == -1:
+        return ''
 
     words = lines[cmd_index + 1].split()
     while words and not COMMAND_RE.match(words[0]):
