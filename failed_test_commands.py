@@ -18,21 +18,23 @@ HEADERS = {
 COMMAND_RE = re.compile(r'([A-Z_]+=.*)|python')
 
 FAILURE = 'failure'
+COMPLETED = 'completed'
+
 CONCLUSION = 'conclusion'
 COMMAND = 'To execute this test, run the following from the base repo dir'
-WAIT_FOR_CONCLUSION = 0
+WAIT_FOR_CONCLUSION = 60
 
 
-def failed_test_commands(run_id):
+def failed_test_commands(run_id, wait_for_conclusion):
     print('#/bin/bash\n\nset -x\n')
 
-    for job in get_failures(run_id):
+    for job in get_failures(run_id, wait_for_conclusion):
         command = get_command(job['id'])
-        if command:
-            print(f'{command}  # {job["id"]}')
+        file = sys.stderr if command.startswith('#') else sys.stdout
+        print(f'{command}  # {job["id"]}', file=file)
 
 
-def get_failures(run_id):
+def get_failures(run_id, wait_for_conclusion):
     while True:
         print('Loading jobs...', file=sys.stderr)
         json = api_get(f'actions/runs/{run_id}/jobs?per_page=100').json()
@@ -46,22 +48,26 @@ def get_failures(run_id):
         if not_finished:
             print(f'{not_finished} job{"s" * (not_finished != 1)} not finished', file=sys.stderr)
 
-        if not (WAIT_FOR_CONCLUSION and not_finished):
+        if not (wait_for_conclusion and not_finished):
             break
-        print('Waiting for', WAIT_FOR_CONCLUSION, 'seconds', file=sys.stderr)
-        time.sleep(WAIT_FOR_CONCLUSION)
+        print('Waiting for', wait_for_conclusion, 'seconds', file=sys.stderr)
+        time.sleep(wait_for_conclusion)
 
-    failed = [i for i in jobs if i[CONCLUSION] == FAILURE]
-    print(f'run_id={run_id}, jobs={len(jobs)}, failed={len(failed)}', file=sys.stderr)
+    failed = [i for i in jobs if i[CONCLUSION] != COMPLETED]
+    print(f'run_id={run_id}, jobs={len(jobs)}, failed or incomplete={len(failed)}', file=sys.stderr)
     return failed
 
 
 def get_command(job_id):
-    lines = api_get(f'actions/jobs/{job_id}/logs').text.splitlines()
+    try:
+        lines = api_get(f'actions/jobs/{job_id}/logs').text.splitlines()
+    except requests.ConnectionError:
+        return '# couldn\'t get logs'
+
     command_lines = (i for i, li in enumerate(lines) if COMMAND in li)
     cmd_index = next(command_lines, -1)
     if cmd_index == -1:
-        return ''
+        return '# No command found'
 
     words = lines[cmd_index + 1].split()
     while words and not COMMAND_RE.match(words[0]):
@@ -77,10 +83,13 @@ def api_get(path):
 if __name__ == '__main__':
     import sys
 
+    exe, *rest = sys.argv
     try:
-        _, run_id = sys.argv
+        run_id, *rest = rest
+        wait_for_conclusion, = rest or [WAIT_FOR_CONCLUSION]
+        wait_for_conclusion = int(wait_for_conclusion)
     except ValueError:
-        print('Usage: ghlogs.py RUN_ID', file=sys.stderr)
+        print(f'Usage: {exe} RUN_ID [WAIT_FOR_CONCLUSION]', file=sys.stderr)
         sys.exit(0)
 
-    failed_test_commands(run_id)
+    failed_test_commands(run_id, wait_for_conclusion)
