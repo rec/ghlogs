@@ -23,7 +23,7 @@ COMPLETED = 'completed'
 CONCLUSION = 'conclusion'
 COMMAND = 'To execute this test, run the following from the base repo dir'
 WAIT_FOR_CONCLUSION = 60
-
+DEBUG = True
 
 def failed_test_commands(run_id, wait_for_conclusion):
     print('#/bin/bash\n\nset -x\n')
@@ -38,11 +38,7 @@ def get_failures(run_id, wait_for_conclusion):
     while True:
         print('Loading jobs...', file=sys.stderr)
         json = api_get(f'actions/runs/{run_id}/jobs?per_page=100').json()
-        try:
-            jobs = json['jobs']
-        except KeyError:
-            print(json, file=sys.stderr)
-            sys.exit(1)
+        jobs = json['jobs']
 
         not_finished = sum(not j['conclusion'] for j in jobs)
         if not_finished:
@@ -61,12 +57,16 @@ def get_failures(run_id, wait_for_conclusion):
 def get_command(job_id):
     try:
         lines = api_get(f'actions/jobs/{job_id}/logs').text.splitlines()
-    except requests.ConnectionError:
-        return '# couldn\'t get logs'
+    except requests.ConnectionError as e:
+        return f'# couldn\'t get logs {e}'
 
     command_lines = (i for i, li in enumerate(lines) if COMMAND in li)
     cmd_index = next(command_lines, -1)
     if cmd_index == -1:
+        if DEBUG:
+            for i in lines:
+                print(i)
+            sys.exit()
         return '# No command found'
 
     words = lines[cmd_index + 1].split()
