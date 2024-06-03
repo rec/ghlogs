@@ -1,5 +1,4 @@
 import os
-import pathlib
 import re
 import requests
 import time
@@ -20,21 +19,22 @@ COMMAND_RE = re.compile(r'([A-Z_]+=.*)|python')
 FAILURE = 'failure'
 CONCLUSION = 'conclusion'
 COMMAND = 'To execute this test, run the following from the base repo dir'
-WAIT_FOR_CONCLUSION = 0
+WAIT_FOR_CONCLUSION = 60
 
 
-def failed_test_commands(run_id):
+def failed_test_commands(*run_ids):
     print('#/bin/bash\n\nset -x\n')
 
-    for job in get_failures(run_id):
-        command = get_command(job['id'])
-        if command:
-            print(f'{command}  # {job["id"]}')
+    for run_id in run_ids:
+        for job in get_failures(run_id):
+            command = get_command(job['id'])
+            if command:
+                print(f'{command}  # {job["id"]}')
 
 
 def get_failures(run_id):
     while True:
-        print('Loading jobs...', file=sys.stderr)
+        print(f'Loading jobs for {run_id}...', file=sys.stderr)
         json = api_get(f'actions/runs/{run_id}/jobs?per_page=100').json()
         try:
             jobs = json['jobs']
@@ -77,10 +77,9 @@ def api_get(path):
 if __name__ == '__main__':
     import sys
 
-    try:
-        _, run_id = sys.argv
-    except ValueError:
-        print('Usage: ghlogs.py RUN_ID', file=sys.stderr)
+    _, *run_ids = sys.argv
+    if not run_ids:
+        print('Usage: ghlogs.py RUN_ID [RUN_ID]', file=sys.stderr)
         sys.exit(0)
 
-    failed_test_commands(run_id)
+    failed_test_commands(*run_ids)
