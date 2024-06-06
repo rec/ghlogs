@@ -36,6 +36,11 @@ def failed_test_commands(*run_ids):
 
 
 def get_failures(run_id):
+    try:
+        run_id = next(i for i in run_id.split('/') if i.isnumeric())
+    except Exception:
+        sys.exit(f"Cannot get run id from {run_id}")
+
     while True:
         print(f"Loading jobs for {run_id}...", file=sys.stderr)
         json = api_get(f"actions/runs/{run_id}/jobs?per_page=100").json()
