@@ -2,6 +2,7 @@ import os
 import re
 import time
 
+import bs4
 import requests
 
 API_ROOT = "https://api.github.com/repos/pytorch/pytorch"
@@ -20,27 +21,36 @@ COMMAND_RE = re.compile(r"([A-Z_]+=.*)|python")
 FAILURE = "failure"
 CONCLUSION = "conclusion"
 COMMAND = "To execute this test, run the following from the base repo dir"
-WAIT_FOR_CONCLUSION = 60
-PRINT_SCRIPT_HEADER = False
+SECONDS_TO_WAIT = 0
+HREF_PREFIX = "/pytorch/pytorch/actions/runs/"
 
 
-def failed_test_commands(*run_ids):
-    if PRINT_SCRIPT_HEADER:
-        print("#/bin/bash\n\nset -x\n")
+def get_run_ids(pull_id):
+    try:
+        pull_id = next(i for i in pull_id.split("/") if i.isnumeric())
+    except Exception:
+        sys.exit(f"Cannot get run id from {pull_id}")
+    text = requests.get(f"https://github.com/pytorch/pytorch/pull/{pull_id}/checks").text
+    soup = bs4.BeautifulSoup(text, "html.parser")
+    links = (i for i in soup.find_all("a", href=True) if i.text)
+    for a in links:
+        prefix, _, href = a["href"].partition(HREF_PREFIX)
+        if not prefix and href.isnumeric():
+            for span in a.find_all("span"):
+                if span.text.strip() in ('inductor', 'pull'):
+                    yield href
+                    break
 
+
+def failed_test_commands(run_ids, seconds):
     for run_id in run_ids:
-        for job in get_failures(run_id):
+        for job in get_failures(run_id, seconds):
             command = get_command(job["id"])
             if command:
                 print(f"{command}  # {job['id']}")
 
 
-def get_failures(run_id):
-    try:
-        run_id = next(i for i in run_id.split('/') if i.isnumeric())
-    except Exception:
-        sys.exit(f"Cannot get run id from {run_id}")
-
+def get_failures(run_id, seconds):
     while True:
         print(f"Loading jobs for {run_id}...", file=sys.stderr)
         json = api_get(f"actions/runs/{run_id}/jobs?per_page=100").json()
@@ -55,10 +65,10 @@ def get_failures(run_id):
             msg = f"{not_finished} job{'s' * (not_finished != 1)} not finished"
             print(msg, file=sys.stderr)
 
-        if not (WAIT_FOR_CONCLUSION and not_finished):
+        if not (seconds and not_finished):
             break
-        print("Waiting for", WAIT_FOR_CONCLUSION, "seconds", file=sys.stderr)
-        time.sleep(WAIT_FOR_CONCLUSION)
+        print("Waiting for", seconds, "seconds", file=sys.stderr)
+        time.sleep(seconds)
 
     failed = [i for i in jobs if i[CONCLUSION] == FAILURE]
     print(f"run_id={run_id}, jobs={len(jobs)}, failed={len(failed)}", file=sys.stderr)
@@ -86,9 +96,12 @@ def api_get(path):
 if __name__ == "__main__":
     import sys
 
-    _, *run_ids = sys.argv
-    if not run_ids:
-        print("Usage: ghlogs.py RUN_ID [RUN_ID]", file=sys.stderr)
-        sys.exit(0)
+    try:
+        _, pull_id, *seconds = sys.argv
+        seconds, = seconds or [SECONDS_TO_WAIT]
+        seconds = int(seconds)
+    except Exception:
+        sys.exit("Usage: ghlogs.py PULL_ID [SECONDS_TO_WAIT]")
 
-    failed_test_commands(*run_ids)
+    run_ids = get_run_ids(sys.argv[1])
+    failed_test_commands(run_ids, seconds)
