@@ -37,22 +37,23 @@ def get_run_ids(pull_id):
         prefix, _, href = a["href"].partition(HREF_PREFIX)
         if not prefix and href.isnumeric():
             for span in a.find_all("span"):
-                if span.text.strip() in ('inductor', 'pull'):
-                    yield href
+                span = span.text.strip()
+                if span in ('inductor', 'pull', 'trunk'):
+                    yield span, href
                     break
 
 
 def failed_test_commands(run_ids, seconds):
-    for run_id in run_ids:
-        for job in get_failures(run_id, seconds):
+    for segment, run_id in run_ids:
+        for job in get_failures(segment, run_id, seconds):
             command = get_command(job["id"])
             if command:
                 print(f"{command}  # {job['id']}")
 
 
-def get_failures(run_id, seconds):
+def get_failures(segment, run_id, seconds):
     while True:
-        print(f"Loading jobs for {run_id}...", file=sys.stderr)
+        print(f"Loading jobs for {run_id}, segment={segment}...", file=sys.stderr)
         json = api_get(f"actions/runs/{run_id}/jobs?per_page=100").json()
         try:
             jobs = json["jobs"]
