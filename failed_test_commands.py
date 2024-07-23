@@ -48,7 +48,7 @@ def failed_test_commands(run_ids, seconds):
         for job in get_failures(segment, run_id, seconds):
             command = get_command(job["id"])
             if command:
-                print(f"{command}  # {job['id']}")
+                yield f"{command}  # {job['id']}"
 
 
 def get_failures(segment, run_id, seconds):
@@ -105,4 +105,5 @@ if __name__ == "__main__":
         sys.exit("Usage: ghlogs.py PULL_ID [SECONDS_TO_WAIT]")
 
     run_ids = get_run_ids(sys.argv[1])
-    failed_test_commands(run_ids, seconds)
+    errors = failed_test_commands(run_ids, seconds)
+    print(*sorted(errors), sep='\n')
