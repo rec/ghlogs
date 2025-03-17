@@ -2,6 +2,8 @@ import os
 import re
 import time
 
+import sys
+
 import bs4
 import requests
 
@@ -48,7 +50,7 @@ def failed_test_commands(run_ids, seconds):
         for job in get_failures(segment, run_id, seconds):
             command = get_command(job["id"])
             if command:
-                yield f"{command}  # {job['id']}"
+                yield command, job["id"]
 
 
 def get_failures(segment, run_id, seconds):
@@ -94,9 +96,16 @@ def api_get(path):
     return requests.get(f"{API_ROOT}/{path}", headers=HEADERS)
 
 
-if __name__ == "__main__":
-    import sys
+def run(pull_id, seconds, arg):
+    run_ids = get_run_ids(arg)
+    last_cmd = ''
+    for cmd, job_id in sorted(failed_test_commands(run_ids, seconds)):
+        if cmd != last_cmd:
+            print(f"{cmd}  # {job_id}")
+            last_cmd = cmd
 
+
+def main():
     try:
         _, pull_id, *seconds = sys.argv
         seconds, = seconds or [SECONDS_TO_WAIT]
@@ -104,6 +113,8 @@ if __name__ == "__main__":
     except Exception:
         sys.exit("Usage: ghlogs.py PULL_ID [SECONDS_TO_WAIT]")
 
-    run_ids = get_run_ids(sys.argv[1])
-    errors = failed_test_commands(run_ids, seconds)
-    print(*sorted(errors), sep='\n')
+    run(pull_id, seconds, sys.argv[1])
+
+
+if __name__ == "__main__":
+    main()
